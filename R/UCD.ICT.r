@@ -35,6 +35,36 @@ mRNA=prob$mRNA
 mRNA.rank = lapply(1:ncol(mRNA), function(tt) rank.array(mRNA[,tt]))
 mRNA.rank = t(do.call(rbind, mRNA.rank))
 
+
+# this mRNA dataset was processed from a RPKM-normalized RNAseq datafile from Van Allen through personal communication
+# and processed in the following manner
+if (0){
+gse=fread("data/VanAllen.Science.2015/MEL-IPI-Share.rpkm.gct.txt",header=T)
+ensembl=gse$Name
+genes=gse$Description
+ugenes=unique(genes)
+gse=gse[,3:ncol(gse),with=F]
+samples=colnames(gse)
+gse=as.matrix(gse)
+class(gse) <- "numeric"
+mRNA=matrix(NA,length(ugenes),ncol(gse))
+for (i in seq(length(ugenes))){
+	ix=which(ugenes[i]==genes)
+	if (length(ix)> 1) mRNA[i,]=apply(gse[ix,],2,mean,na.rm=T)
+	if (length(ix)==1) mRNA[i,]=gse[ix,]	
+	print(i)
+}
+mRNA.rank = lapply(1:ncol(mRNA), function(tt) rank.array(mRNA[,tt]))
+mRNA.rank = t(do.call(rbind, mRNA.rank))
+samples=do.call(rbind,strsplit(samples,"[._]"))[,3]
+
+# we considered only the samples (N=40) where we have both mutation and RNAseq data
+ix=match(prob$samples,samples)
+mRNA.rank=mRNA.rank[,ix]
+mRNA=mRNA[,ix]
+samples=samples[ix]
+}
+
 # UCD-score
 UC.genes=c("ASL","ASS1","CPS1","OTC","SLC25A13","SLC25A15")
 iuc=match(UC.genes,prob$genes)
@@ -85,6 +115,50 @@ wilcox.test(pval[flag==1,1],pval[flag==0,1],alternative="greater") #UCD: 0.04095
 wilcox.test(pval[flag==1,2],pval[flag==0,2],alternative="greater") #mutational load: 0.1247
 wilcox.test(pval[flag==1,3],pval[flag==0,3],alternative="greater") #PTMB: 0.5088
 
+# analysis based on TPM-normalized RNAseq data
+van=fread("data/20160304_MEL-TPM_noDups.txt")
+cn=colnames(van)
+cn=do.call(rbind,strsplit(cn,"[-_]"))[,3]
+cn=cn[2:length(cn)]
+
+genes=substr(van$"gene_id",1,15)
+ugenes=unique(genes)
+tap=fread("data/ensembl2symbol.txt")
+ix=match(genes,tap$"Gene stable ID")
+genes=tap$"HGNC symbol"[ix]
+ii=which(!is.na(genes))
+van=van[,2:ncol(van),with=F]
+van=as.matrix(van)
+class(van) <- "numeric"
+
+mRNA=van
+mRNA.rank = lapply(1:ncol(mRNA), function(tt) rank.array(mRNA[,tt]))
+mRNA.rank = t(do.call(rbind, mRNA.rank))
+
+genes=genes[ii]
+mRNA=mRNA[ii,]
+mRNA.rank=mRNA.rank[ii,]
+
+ix=match(prob$samples,cn)
+mRNA=mRNA[,ix]
+
+# UCD-score
+UC.genes=c("ASL","ASS1","CPS1","OTC","SLC25A13","SLC25A15")
+iuc=match(UC.genes,genes)
+q=c(-1,-1,1,-1,1,-1)
+score.M=NULL
+for (i in seq(length(UC.genes))){
+	score.M=rbind(score.M,mRNA.rank[iuc[i],]*q[i])
+}
+u.score=apply(score.M,2,sum,na.rm=T)
+
+pval=u.score
+flag=1*(patient$RECIST %in% c("PR","CR"))
+	ix=which(patient$RECIST %in% c("PR","CR","PD"))
+	flag=flag[ix]
+	pval=pval[ix]
+wilcox.test(pval[flag==1],pval[flag==0],alternative="greater") #UCD: 0.2248
+
 
 # (2) Hugo dataset
 patient2=fread("data/GSE78220.phenotype.txt",header=T)
@@ -116,7 +190,7 @@ ir0=which(patient2$irRECIST %in% c("Progressive Disease"))
 wilcox.test(u.score[ir2],u.score[ir0],alternative="greater") #0.0284
 
 load("data/Hugo.mutation.RData")
-pval=cbind(mut$bias,mut$ml,mut$score)
+pval=cbind(mut$score,mut$ml,mut$bias)
 flag=(mut$response=="response")*1
 
 na.inx=which(!is.na(pval[,1]))
